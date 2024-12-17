@@ -2,14 +2,11 @@ import openai
 import pandas as pd
 import streamlit as st
 
-App_Developer = 'Pradheesh Selvan'
-App_creater = 'Pradheesh Selvan'
-
 # Set your OpenAI API key
-openai.api_key = "OPENAI_API_KEY"  # Replace with a valid API key
+openai.api_key = "your-openai-api-key-here"  # Make sure to replace this with a valid OpenAI key
 
-# Password for Admin Access
-ADMIN_PASSWORD = "ADMIN_PASSWORD"
+# Get Admin Password from Streamlit secrets
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 # Function to load audit tracker data
 def load_data(file_path):
@@ -36,11 +33,11 @@ def ask_gpt(query, context):
         response_text = response['choices'][0]['message']['content'].strip()
 
         # Remove all code blocks from the response
-        if "```" in response_text:  # Detect code blocks
+        if "```" in response_text:
             response_text = response_text.split("```")[0].strip()
 
         # Additional check for inline code (e.g., HTML, SQL)
-        if "<" in response_text and ">" in response_text:  # Potential HTML or XML code
+        if "<" in response_text and ">" in response_text:
             response_text = "Response excluded due to programming code."
 
         return response_text
@@ -141,65 +138,3 @@ if role == "Admin":
     else:
         if password:
             st.error("Invalid password! Please try again.")
-
-# Auditor Section
-elif role == "Auditor":
-    st.session_state['role'] = "Auditor"
-    st.header("📝 Auditor Section: Update Audit Data")
-
-    if st.session_state['file_uploaded'] and st.session_state['data'] is not None:
-        df = st.session_state['data']
-
-        # Filter out audits that have already been assigned to an auditor
-        available_audits = df[df['auditor_name'].isnull()]
-
-        if available_audits.empty:
-            st.warning("No audits are available for assignment at the moment.")
-        else:
-            # REGION FILTER
-            st.write("### Filter by Region:")
-            region_list = available_audits['region'].dropna().unique()
-            selected_region = st.selectbox("Select Region:", options=region_list)
-
-            region_based_audits = available_audits[available_audits['region'] == selected_region]
-
-            if region_based_audits.empty:
-                st.warning("No audits are available in this region.")
-            else:
-                audit_name = st.selectbox("Select Audit Name:", region_based_audits['audit_name'].unique())
-
-                selected_audit = region_based_audits[region_based_audits['audit_name'] == audit_name].iloc[0]
-                st.write("### Audit Details:")
-                st.write(selected_audit)
-
-                with st.form("auditor_form"):
-                    st.write("### Auditor Inputs:")
-                    accept_terms = st.checkbox("Accept Terms and Conditions (Mandatory)", value=False)
-                    auditor_name = st.text_input("Auditor Name:", placeholder="Enter your name")
-                    mobile_number = st.text_input("Mobile Number:", placeholder="Enter your mobile number")
-                    remarks = st.text_area("Remarks (Optional):")
-                    status = st.selectbox("Audit Status:", ["Pending", "In Progress", "Completed"])
-
-                    submitted = st.form_submit_button("Submit")
-
-                    if submitted:
-                        if not accept_terms:
-                            st.warning("You must accept the Terms and Conditions to proceed.")
-                        elif not auditor_name or not mobile_number:
-                            st.warning("Auditor Name and Mobile Number are mandatory fields.")
-                        else:
-                            update = pd.DataFrame([{
-                                "audit_name": audit_name,
-                                "auditor_name": auditor_name,
-                                "mobile_number": mobile_number,
-                                "remarks": remarks,
-                                "status": status
-                            }])
-
-                            if save_auditor_data(update, st.session_state['data']):
-                                st.success("Audit data submitted successfully!")
-                                st.rerun()
-                            else:
-                                st.error("Failed to save auditor data. Please try again.")
-    else:
-        st.warning("Admin has not uploaded any audit data yet.")
