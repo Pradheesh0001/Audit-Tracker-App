@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 # Google Drive Authentication
-SERVICE_ACCOUNT_FILE = st.secrets["service_account_key"]
+SERVICE_ACCOUNT_FILE = st.secrets[google]["service_account_key"]
 credentials = service_account.Credentials.from_service_account_file(
     SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/drive.file"]
 )
