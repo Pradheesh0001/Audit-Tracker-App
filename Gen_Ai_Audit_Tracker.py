@@ -9,6 +9,7 @@ import streamlit as st
 # Retrieve secret keys from Streamlit secrets
 service_account_key = st.secrets["google"]["service_account_key"]
 openai_api_key = st.secrets["openai"]["openai_api_key"]
+openai.api_key = openai_api_key
 admin_password = st.secrets["general"]["ADMIN_PASSWORD"]
 folder_id = st.secrets["general"]["folder_id"]
 
