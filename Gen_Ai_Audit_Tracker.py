@@ -5,6 +5,9 @@ from googleapiclient.http import MediaFileUpload
 import openai
 import pandas as pd
 import streamlit as st
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaFileUpload
+
 
 # Retrieve secret keys from Streamlit secrets
 service_account_key = st.secrets["google"]["service_account_key"]
