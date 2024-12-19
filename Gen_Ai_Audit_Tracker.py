@@ -40,13 +40,21 @@ def download_file_from_google_drive(file_id, destination):
 
 # Function to upload file to Google Drive
 def upload_file_to_google_drive(file_path, folder_id):
-    file_metadata = {
-        'name': 'auditor_updates.csv',  
-        'parents': [folder_id]
-    }
-    media = MediaFileUpload(file_path, mimetype='text/csv')
-    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    st.success(f"File uploaded successfully with ID: {file['id']}")
+    try:
+        file_metadata = {
+            'name': 'auditor_updates.csv',  # Customize file name if needed
+            'parents': [folder_id]
+        }
+        media = MediaFileUpload(file_path, mimetype='text/csv')
+        file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        st.success(f"File uploaded successfully with ID: {file['id']}")
+    except HttpError as error:
+        error_message = error._get_reason()  # Extract the error reason
+        st.error(f"Google API Error: {error_message}")
+        print(f"Detailed error: {error_message}")
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {e}")
+        print(f"Unexpected error: {e}")
 
 # Preprocess the data
 def preprocess_data(df):
