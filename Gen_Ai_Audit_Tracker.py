@@ -141,7 +141,7 @@ if role == "Admin":
 
     # Admin Password Validation
     password = st.text_input("Enter Admin Password:", type="password")
-    if password == ADMIN_PASSWORD:
+    if password == admin_password:
         st.success("Access granted!")
 
         # File upload
