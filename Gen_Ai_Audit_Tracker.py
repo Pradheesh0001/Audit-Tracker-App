@@ -9,8 +9,9 @@ import streamlit as st
 # Google Drive Authentication
 
 credentials = service_account.Credentials.from_service_account_info(
-    json.loads(service_account_key), scopes=["https://www.googleapis.com/auth/drive.file"]
+    service_account_key, scopes=["https://www.googleapis.com/auth/drive.file"]
 )
+
 
 drive_service = build('drive', 'v3', credentials=credentials)
 
