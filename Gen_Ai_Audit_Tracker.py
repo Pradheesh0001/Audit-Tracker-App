@@ -1,16 +1,44 @@
+import json
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+from googleapiclient.http import MediaFileUpload
 import openai
 import pandas as pd
 import streamlit as st
 
+# Google Drive Authentication
+SERVICE_ACCOUNT_FILE = st.secrets["secrets"]["service_account_key"]
+credentials = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/drive.file"]
+)
+drive_service = build('drive', 'v3', credentials=credentials)
+
 # Set your OpenAI API key
-openai.api_key = st.secrets["openai_api_key"]  # Make sure to replace this with a valid OpenAI key
+openai.api_key = st.secrets["openai"]["openai_api_key"]  # Fetch from secrets.toml  
 
 # Get Admin Password from Streamlit secrets
-ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+ADMIN_PASSWORD = st.secrets["general"]["ADMIN_PASSWORD"]  # Fetch from secrets.toml
 
 # Function to load audit tracker data
 def load_data(file_path):
     return pd.read_excel(file_path)
+
+# Function to download file from Google Drive
+def download_file_from_google_drive(file_id, destination):
+    request = drive_service.files().get_media(fileId=file_id)
+    with open(destination, 'wb') as f:
+        request.execute()
+    st.success(f"File downloaded to {destination}")
+
+# Function to upload file to Google Drive
+def upload_file_to_google_drive(file_path, folder_id):
+    file_metadata = {
+        'name': 'auditor_updates.csv',  
+        'parents': [folder_id]
+    }
+    media = MediaFileUpload(file_path, mimetype='text/csv')
+    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    st.success(f"File uploaded successfully with ID: {file['id']}")
 
 # Preprocess the data
 def preprocess_data(df):
@@ -117,10 +145,6 @@ if role == "Admin":
             st.session_state['data'] = preprocess_data(st.session_state['data'])
             st.session_state['file_uploaded'] = True
 
-            # Display data preview
-            st.write("### Data Preview:")
-            st.write(st.session_state['data'].head())
-
             # Merge with Auditor Updates
             merged_data = merge_data(st.session_state['data'], "auditor_updates.csv")
             st.write("### Merged Data with Auditor Inputs:")
@@ -195,9 +219,9 @@ elif role == "Auditor":
 
                             if save_auditor_data(update, st.session_state['data']):
                                 st.success("Audit data submitted successfully!")
+                                upload_file_to_google_drive("auditor_updates.csv", "folder_id")
                                 st.rerun()
                             else:
                                 st.error("Failed to save auditor data. Please try again.")
     else:
         st.warning("Admin has not uploaded any audit data yet.")
-
