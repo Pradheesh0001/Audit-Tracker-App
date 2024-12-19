@@ -7,20 +7,16 @@ import pandas as pd
 import streamlit as st
 
 # Google Drive Authentication
-SERVICE_ACCOUNT_FILE = st.secrets[google]["service_account_key"]
+
 credentials = service_account.Credentials.from_service_account_file(
     SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/drive.file"]
 )
 drive_service = build('drive', 'v3', credentials=credentials)
 
-folder_id = st.secrets["google_drive_folder_id"]
-
-
-# Set your OpenAI API key
-openai.api_key = st.secrets["openai"]["openai_api_key"]  # Fetch from secrets.toml  
-
-# Get Admin Password from Streamlit secrets
-ADMIN_PASSWORD = st.secrets["general"]["ADMIN_PASSWORD"]  # Fetch from secrets.toml
+openai_api_key = st.secrets["openai"]["openai_api_key"]
+admin_password = st.secrets["general"]["ADMIN_PASSWORD"]
+folder_id = st.secrets["general"]["folder_id"]
+service_account_key = st.secrets["google"]["service_account_key"]
 
 # Function to load audit tracker data
 def load_data(file_path):
