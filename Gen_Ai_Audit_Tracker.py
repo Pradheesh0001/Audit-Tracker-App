@@ -6,15 +6,20 @@ import openai
 import pandas as pd
 import streamlit as st
 
-# Google Drive Authentication
+# Retrieve secret keys from Streamlit secrets
+service_account_key = st.secrets["google"]["service_account_key"]
+openai_api_key = st.secrets["openai"]["openai_api_key"]
+admin_password = st.secrets["general"]["ADMIN_PASSWORD"]
+folder_id = st.secrets["general"]["folder_id"]
 
+# Google Drive Authentication
 credentials = service_account.Credentials.from_service_account_info(
     json.loads(service_account_key),
     scopes=["https://www.googleapis.com/auth/drive.file"]
 )
 
-
 drive_service = build('drive', 'v3', credentials=credentials)
+
 
 openai_api_key = st.secrets["openai"]["openai_api_key"]
 admin_password = st.secrets["general"]["ADMIN_PASSWORD"]
