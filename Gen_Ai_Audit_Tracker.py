@@ -28,22 +28,19 @@ def load_data(file_path):
 
 # Function to download file from Google Drive
 def download_file_from_google_drive(file_id, destination):
-    try:
-        request = drive_service.files().get_media(fileId=file_id)
-        with open(destination, 'wb') as f:
-            request.execute()
-        st.success(f"File downloaded to {destination}")
-    except Exception as e:
-        st.error(f"Error downloading file: {e}")
+    request = drive_service.files().get_media(fileId=file_id)
+    with open(destination, 'wb') as f:
+        request.execute()
+    st.success(f"File downloaded to {destination}")
 
 # Function to upload file to Google Drive
 def upload_file_to_google_drive(file_path, folder_id):
     try:
         file_metadata = {
-            'name': 'auditor_updates.csv',
+            'name': 'audit_tracker.xlsx',
             'parents': [folder_id]
         }
-        media = MediaFileUpload(file_path, mimetype='text/csv')
+        media = MediaFileUpload(file_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         st.success(f"File uploaded successfully with ID: {file['id']}")
     except HttpError as error:
@@ -142,13 +139,22 @@ if role == "Admin":
         uploaded_file = st.file_uploader("Upload an Audit Tracker Excel file", type=["xlsx"])
 
         if uploaded_file:
+            # Save the uploaded file temporarily
             temp_file_path = "uploaded_audit_tracker.xlsx"
             with open(temp_file_path, "wb") as temp_file:
                 temp_file.write(uploaded_file.getbuffer())
 
+            # Load the data from the temporary file
             st.session_state['data'] = load_data(temp_file_path)
             st.session_state['data'] = preprocess_data(st.session_state['data'])
             st.session_state['file_uploaded'] = True
+
+            # Upload the file to Google Drive for global access
+            try:
+                upload_file_to_google_drive(temp_file_path, folder_id)
+                st.success("Data uploaded to Google Drive successfully!")
+            except Exception as e:
+                st.error(f"Failed to upload the file to Google Drive: {e}")
 
             # Merge with Auditor Updates
             merged_data = merge_data(st.session_state['data'], "auditor_updates.csv")
@@ -175,11 +181,14 @@ elif role == "Auditor":
 
     if st.session_state['file_uploaded'] and st.session_state['data'] is not None:
         df = st.session_state['data']
+
+        # Filter out audits that have already been assigned to an auditor
         available_audits = df[df['auditor_name'].isnull()]
 
         if available_audits.empty:
             st.warning("No audits are available for assignment at the moment.")
         else:
+            # REGION FILTER
             st.write("### Filter by Region:")
             region_list = available_audits['region'].dropna().unique()
             selected_region = st.selectbox("Select Region:", options=region_list)
@@ -190,6 +199,7 @@ elif role == "Auditor":
                 st.warning("No audits are available in this region.")
             else:
                 audit_name = st.selectbox("Select Audit Name:", region_based_audits['audit_name'].unique())
+
                 selected_audit = region_based_audits[region_based_audits['audit_name'] == audit_name].iloc[0]
                 st.write("### Audit Details:")
                 st.write(selected_audit)
@@ -218,14 +228,11 @@ elif role == "Auditor":
                                 "status": status
                             }])
 
-                            try:
-                                if save_auditor_data(update, st.session_state['data']):
-                                    st.success("Audit data submitted successfully!")
-                                    upload_file_to_google_drive("auditor_updates.csv", folder_id)
-                                    st.rerun()
-                                else:
-                                    st.error("Failed to save auditor data. Please try again.")
-                            except Exception as e:
-                                st.error(f"An error occurred during rerun: {e}")
+                            if save_auditor_data(update, st.session_state['data']):
+                                st.success("Audit data submitted successfully!")
+                                upload_file_to_google_drive("auditor_updates.csv", folder_id)
+                                st.experimental_rerun()
+                            else:
+                                st.error("Failed to save auditor data. Please try again.")
     else:
         st.warning("Admin has not uploaded any audit data yet.")
