@@ -223,14 +223,13 @@ elif role == "Auditor":
 
                              try:
                                   
-                                if save_auditor_data(update, st.session_state['data']):
-                                    st.success("Audit data submitted successfully!")
-                                    upload_file_to_google_drive("auditor_updates.csv", folder_id)
-                                    st.experimental_rerun()
-                            except Exception as e:
-                                st.error(f"An error occurred during rerun: {e}")
-
-                            else:
-                                st.error("Failed to save auditor data. Please try again.")
+                                 if save_auditor_data(update, st.session_state['data']):
+                                     st.success("Audit data submitted successfully!")
+                                     upload_file_to_google_drive("auditor_updates.csv", folder_id)
+                                     st.experimental_rerun()
+                                 else:
+                                     st.error("Failed to save auditor data. Please try again.")
+                             except Exception as e:
+                                 st.error(f"An error occurred during rerun: {e}")
     else:
         st.warning("Admin has not uploaded any audit data yet.")
