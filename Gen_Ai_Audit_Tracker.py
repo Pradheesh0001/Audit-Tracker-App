@@ -1,3 +1,4 @@
+import os
 import json
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
@@ -6,8 +7,6 @@ import openai
 import pandas as pd
 import streamlit as st
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
-
 
 # Retrieve secret keys from Streamlit secrets
 service_account_key = st.secrets["google"]["service_account_key"]
@@ -21,14 +20,7 @@ credentials = service_account.Credentials.from_service_account_info(
     json.loads(service_account_key),
     scopes=["https://www.googleapis.com/auth/drive.file"]
 )
-
 drive_service = build('drive', 'v3', credentials=credentials)
-
-
-openai_api_key = st.secrets["openai"]["openai_api_key"]
-admin_password = st.secrets["general"]["ADMIN_PASSWORD"]
-folder_id = st.secrets["general"]["folder_id"]
-service_account_key = st.secrets["google"]["service_account_key"]
 
 # Function to load audit tracker data
 def load_data(file_path):
@@ -44,15 +36,21 @@ def download_file_from_google_drive(file_id, destination):
 # Function to upload file to Google Drive
 def upload_file_to_google_drive(file_path, folder_id):
     try:
+        if not os.path.exists(file_path):
+            st.error(f"The file {file_path} does not exist and cannot be uploaded.")
+            return
+
         file_metadata = {
             'name': 'auditor_updates.csv',  # Customize file name if needed
             'parents': [folder_id]
         }
         media = MediaFileUpload(file_path, mimetype='text/csv')
+        st.write(f"Uploading file {file_path} to folder {folder_id}...")
+        
         file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         st.success(f"File uploaded successfully with ID: {file['id']}")
     except HttpError as error:
-        error_message = error._get_reason()  # Extract the error reason
+        error_message = error.error_details[0].get('message', str(error)) if error.error_details else str(error)
         st.error(f"Google API Error: {error_message}")
         print(f"Detailed error: {error_message}")
     except Exception as e:
@@ -238,7 +236,12 @@ elif role == "Auditor":
 
                             if save_auditor_data(update, st.session_state['data']):
                                 st.success("Audit data submitted successfully!")
-                                upload_file_to_google_drive("auditor_updates.csv", "folder_id")
+                                # Check if the file exists before attempting upload
+                                file_path = "auditor_updates.csv"
+                                if os.path.exists(file_path):
+                                    upload_file_to_google_drive(file_path, folder_id)
+                                else:
+                                    st.error(f"The file {file_path} does not exist, and data could not be uploaded.")
                                 st.rerun()
                             else:
                                 st.error("Failed to save auditor data. Please try again.")
