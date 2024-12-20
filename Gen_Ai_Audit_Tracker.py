@@ -231,7 +231,7 @@ elif role == "Auditor":
                             if save_auditor_data(update, st.session_state['data']):
                                 st.success("Audit data submitted successfully!")
                                 upload_file_to_google_drive("auditor_updates.csv", folder_id)
-                                st.experimental_rerun()
+                                st.rerun()
                             else:
                                 st.error("Failed to save auditor data. Please try again.")
     else:
