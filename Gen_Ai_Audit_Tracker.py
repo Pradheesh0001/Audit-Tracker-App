@@ -1,10 +1,11 @@
-import json
+import pandas as pd
+import streamlit as st
+import time
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from googleapiclient.http import MediaFileUpload
 import openai
-import pandas as pd
-import streamlit as st
+import json
 from googleapiclient.errors import HttpError
 
 # Retrieve secret keys from Streamlit secrets
@@ -67,6 +68,16 @@ def preprocess_data(df):
     df['audit_date'] = pd.to_datetime(df['audit_date'], errors='coerce')
     return df
 
+# Merge Admin data and Auditor updates
+def merge_data(admin_df, auditor_updates_path):
+    try:
+        auditor_df = pd.read_csv(auditor_updates_path)
+        merged_df = pd.merge(admin_df, auditor_df, on="audit_name", how="left")
+        return merged_df
+    except Exception as e:
+        st.error(f"Error merging data: {e}")
+        return admin_df
+
 # Query OpenAI GPT for answers
 def ask_gpt(query, context):
     try:
@@ -82,47 +93,6 @@ def ask_gpt(query, context):
         return response['choices'][0]['message']['content'].strip()
     except Exception as e:
         return f"An error occurred: {e}"
-
-# Save auditor-submitted data
-def save_auditor_data(data, admin_df, filename="auditor_updates.csv"):
-    try:
-        if 'auditor_name' not in admin_df.columns:
-            admin_df['auditor_name'] = None
-        if 'status' not in admin_df.columns:
-            admin_df['status'] = None
-        if 'remarks' not in admin_df.columns:
-            admin_df['remarks'] = None
-        if 'mobile_number' not in admin_df.columns:
-            admin_df['mobile_number'] = None
-
-        for index, row in data.iterrows():
-            audit_name = row['audit_name']
-            auditor_name = row['auditor_name']
-            status = row['status']
-            remarks = row['remarks']
-            mobile_number = row['mobile_number']
-
-            admin_df.loc[admin_df['audit_name'] == audit_name, 'auditor_name'] = auditor_name
-            admin_df.loc[admin_df['audit_name'] == audit_name, 'status'] = status
-            admin_df.loc[admin_df['audit_name'] == audit_name, 'remarks'] = remarks
-            admin_df.loc[admin_df['audit_name'] == audit_name, 'mobile_number'] = mobile_number
-
-        admin_df.to_csv(filename, index=False)
-        st.session_state["auditor_data_saved"] = True
-        return True
-    except Exception as e:
-        st.error(f"Error saving data: {e}")
-        return False
-
-# Merge Admin data and Auditor updates
-def merge_data(admin_df, auditor_updates_path):
-    try:
-        auditor_df = pd.read_csv(auditor_updates_path)
-        merged_df = pd.merge(admin_df, auditor_df, on="audit_name", how="left")
-        return merged_df
-    except Exception as e:
-        st.error(f"Error merging data: {e}")
-        return admin_df
 
 # Streamlit UI setup
 st.title('Audit Tracker GenAI App')
@@ -244,13 +214,14 @@ elif role == "Auditor":
 
                             st.success(f"Audit data for {audit_name} has been updated successfully!")
 
-        # Add Refresh Button to Reload Data
-        if st.button("Refresh Data"):
-            # Reload the file from Google Drive
-            if st.session_state['file_uploaded']:
-                download_file_from_google_drive(st.session_state['file_id'], 'latest_audit_data.xlsx')
-                st.session_state['data'] = load_data('latest_audit_data.xlsx')
-                st.rerun()
-
     else:
         st.warning("No file has been uploaded by the Admin yet.")
+    
+    # Auto-update simulation: Periodic data reload
+    st.text("Fetching latest data...")
+
+    # Periodic refresh mechanism (simulate live stream)
+    while True:
+        if st.session_state['file_uploaded'] and st.session_state['data'] is not None:
+            st.rerun()
+        time.sleep(5)  # Check for updates every 5 seconds
