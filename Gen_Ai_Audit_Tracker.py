@@ -228,7 +228,7 @@ elif role == "Auditor":
                                 if save_auditor_data(update, st.session_state['data']):
                                     st.success("Audit data submitted successfully!")
                                     upload_file_to_google_drive("auditor_updates.csv", folder_id)
-                                    st.experimental_rerun()
+                                    st.rerun()
                             except Exception as e:
                                 st.error(f"An error occurred during rerun: {e}")
 
