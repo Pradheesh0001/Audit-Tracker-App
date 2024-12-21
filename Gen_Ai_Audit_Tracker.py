@@ -10,7 +10,6 @@ import json
 # Streamlit Secrets for Credentials
 service_account_key = st.secrets["google"]["service_account_key"]
 openai_api_key = st.secrets["openai"]["openai_api_key"]
-openai_api_key = openai_api_key  # Not used here but can be extended
 admin_password = st.secrets["general"]["ADMIN_PASSWORD"]
 folder_id = st.secrets["general"]["folder_id"]
 
@@ -30,27 +29,39 @@ if "file_id" not in st.session_state:
 
 def upload_file_to_google_drive(file_path, folder_id):
     """Upload file to Google Drive and return file ID."""
-    file_metadata = {"name": "audit_data.xlsx", "parents": [folder_id]}
-    media = MediaFileUpload(file_path, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    return uploaded_file.get("id")
+    try:
+        file_metadata = {"name": "audit_data.xlsx", "parents": [folder_id]}
+        media = MediaFileUpload(file_path, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        uploaded_file = drive_service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+        return uploaded_file.get("id")
+    except Exception as e:
+        st.error(f"Error during file upload: {e}")
+        return None
 
 
 def download_file_from_google_drive(file_id):
     """Download file from Google Drive using file ID."""
-    request = drive_service.files().get_media(fileId=file_id)
-    buffer = io.BytesIO()
-    downloader = MediaIoBaseDownload(buffer, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    buffer.seek(0)
-    return buffer
+    try:
+        request = drive_service.files().get_media(fileId=file_id)
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        st.error(f"Error during file download: {e}")
+        return None
 
 
 def load_data_from_excel(buffer):
     """Load data from Excel file buffer."""
-    return pd.read_excel(buffer)
+    try:
+        return pd.read_excel(buffer)
+    except Exception as e:
+        st.error(f"Error reading Excel file: {e}")
+        return None
 
 
 # Main App
@@ -70,11 +81,14 @@ if role == "Admin":
                 f.write(uploaded_file.getbuffer())
             try:
                 file_id = upload_file_to_google_drive(temp_file_path, folder_id)
-                st.session_state["file_uploaded"] = True
-                st.session_state["file_id"] = file_id
-                st.success("File uploaded successfully!")
+                if file_id:
+                    st.session_state["file_uploaded"] = True
+                    st.session_state["file_id"] = file_id
+                    st.success("File uploaded successfully!")
+                else:
+                    st.error("Failed to upload file to Google Drive.")
             except Exception as e:
-                st.error(f"Error uploading file to Google Drive: {e}")
+                st.error(f"Unexpected error: {e}")
     elif password:
         st.error("Incorrect password. Please try again.")
 
@@ -85,11 +99,15 @@ elif role == "Auditor":
         try:
             with st.spinner("Fetching the latest data..."):
                 buffer = download_file_from_google_drive(st.session_state["file_id"])
-                df = load_data_from_excel(buffer)
-                st.success("Data loaded successfully!")
-                st.write("### Audit Data:")
-                st.dataframe(df)
+                if buffer:
+                    df = load_data_from_excel(buffer)
+                    if df is not None:
+                        st.success("Data loaded successfully!")
+                        st.write("### Audit Data:")
+                        st.dataframe(df)
+                    else:
+                        st.error("Failed to process the uploaded data.")
         except Exception as e:
-            st.error(f"Error loading data: {e}")
+            st.error(f"Unexpected error while fetching data: {e}")
     else:
         st.warning("Admin has not uploaded any audit data yet.")
