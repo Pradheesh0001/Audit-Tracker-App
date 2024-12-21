@@ -246,3 +246,4 @@ elif role == "Auditor":
                                 st.error("Failed to save auditor data. Please try again.")
     else:
         st.warning("Admin has not uploaded any audit data yet.")
+
