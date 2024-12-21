@@ -243,6 +243,12 @@ elif role == "Auditor":
                             save_auditor_data(update, st.session_state['data'])
 
                             st.success(f"Audit data for {audit_name} has been updated successfully!")
+
+        # Add Refresh Button
+        if st.button("Refresh Data"):
+            st.session_state['data'] = None
+            st.session_state['file_uploaded'] = False
+            st.rerun()
+
     else:
         st.warning("No file has been uploaded by the Admin yet.")
-
