@@ -6,7 +6,6 @@ import openai
 import pandas as pd
 import streamlit as st
 from googleapiclient.errors import HttpError
-import os
 
 # Retrieve secret keys from Streamlit secrets
 service_account_key = st.secrets["google"]["service_account_key"]
@@ -25,24 +24,19 @@ drive_service = build('drive', 'v3', credentials=credentials)
 
 # Function to load audit tracker data
 def load_data(file_path):
-    try:
-        # Ensure the file is in the correct format
-        if not file_path.endswith('.xlsx'):
-            raise ValueError("The file is not an Excel (.xlsx) file.")
-
-        # Attempt to load the Excel file with the openpyxl engine
-        df = pd.read_excel(file_path, engine='openpyxl')
-        return df
-    except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
-        return None
+    return pd.read_excel(file_path)
 
 # Function to download file from Google Drive
 def download_file_from_google_drive(file_id, destination):
-    request = drive_service.files().get_media(fileId=file_id)
-    with open(destination, 'wb') as f:
-        request.execute()
-    st.success(f"File downloaded to {destination}")
+    try:
+        request = drive_service.files().get_media(fileId=file_id)
+        with open(destination, 'wb') as f:
+            request.execute()
+        st.success(f"File downloaded to {destination}")
+    except HttpError as error:
+        st.error(f"Error loading data from Google Drive: {error}")
+    except Exception as e:
+        st.error(f"Failed to load data from Google Drive: {e}")
 
 # Function to upload file to Google Drive
 def upload_file_to_google_drive(file_path, folder_id):
@@ -54,10 +48,18 @@ def upload_file_to_google_drive(file_path, folder_id):
         media = MediaFileUpload(file_path, mimetype='text/csv')
         file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         st.success(f"File uploaded successfully with ID: {file['id']}")
+        return file['id']
     except HttpError as error:
         st.error(f"Google API Error: {error}")
     except Exception as e:
         st.error(f"An unexpected error occurred: {e}")
+
+# Validate if the file format is correct
+def is_valid_xlsx(file_path):
+    if not file_path.endswith('.xlsx'):
+        st.error("Invalid file format. Please upload an .xlsx file.")
+        return False
+    return True
 
 # Preprocess the data
 def preprocess_data(df):
@@ -155,28 +157,30 @@ if role == "Admin":
             with open(temp_file_path, "wb") as temp_file:
                 temp_file.write(uploaded_file.getbuffer())
 
-            # Upload the file to Google Drive
-            upload_file_to_google_drive(temp_file_path, folder_id)
+            # Check file format
+            if is_valid_xlsx(temp_file_path):
+                # Upload the file to Google Drive
+                file_id = upload_file_to_google_drive(temp_file_path, folder_id)
 
-            # Load the data from the temporary file
-            st.session_state['data'] = load_data(temp_file_path)
-            st.session_state['data'] = preprocess_data(st.session_state['data'])
-            st.session_state['file_uploaded'] = True
+                # Load the data from the temporary file
+                st.session_state['data'] = load_data(temp_file_path)
+                st.session_state['data'] = preprocess_data(st.session_state['data'])
+                st.session_state['file_uploaded'] = True
 
-            # Merge with Auditor Updates
-            merged_data = merge_data(st.session_state['data'], "auditor_updates.csv")
-            st.write("### Merged Data with Auditor Inputs:")
-            st.write(merged_data)
+                # Merge with Auditor Updates
+                merged_data = merge_data(st.session_state['data'], "auditor_updates.csv")
+                st.write("### Merged Data with Auditor Inputs:")
+                st.write(merged_data)
 
-            # Query GPT
-            st.write("### Ask Questions About the Data:")
-            question = st.text_input("Enter your query:")
+                # Query GPT
+                st.write("### Ask Questions About the Data:")
+                question = st.text_input("Enter your query:")
 
-            if question:
-                data_context = merged_data.to_json()
-                response = ask_gpt(question, data_context)
-                st.write("### Query Response:")
-                st.write(response)
+                if question:
+                    data_context = merged_data.to_json()
+                    response = ask_gpt(question, data_context)
+                    st.write("### Query Response:")
+                    st.write(response)
     else:
         if password:
             st.error("Invalid password! Please try again.")
@@ -230,19 +234,15 @@ elif role == "Auditor":
                             update = pd.DataFrame([{
                                 "audit_name": audit_name,
                                 "auditor_name": auditor_name,
-                                "mobile_number": mobile_number,
+                                "status": status,
                                 "remarks": remarks,
-                                "status": status
+                                "mobile_number": mobile_number
                             }])
 
-                            try:
-                                if save_auditor_data(update, st.session_state['data']):
-                                    st.success("Audit data submitted successfully!")
-                                    upload_file_to_google_drive("auditor_updates.csv", folder_id)
-                                    st.rerun()
-                            except Exception as e:
-                                st.error(f"An error occurred during rerun: {e}")
-                            else:
-                                st.error("Failed to save auditor data. Please try again.")
+                            # Save the data
+                            save_auditor_data(update, st.session_state['data'])
+
+                            st.success(f"Audit data for {audit_name} has been updated successfully!")
     else:
-        st.warning("Admin has not uploaded any audit data yet.")
+        st.warning("No file has been uploaded by the Admin yet.")
+
