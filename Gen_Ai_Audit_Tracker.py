@@ -1,144 +1,238 @@
-import streamlit as st
-import pandas as pd
+import json
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from google.oauth2 import service_account
-import io
+from googleapiclient.http import MediaFileUpload
+import openai
+import pandas as pd
+import streamlit as st
+from googleapiclient.errors import HttpError
 
-# Google Drive API setup
-SCOPES = ['https://www.googleapis.com/auth/drive']
-SERVICE_ACCOUNT_FILE = 'service_account_key.json'  # Replace with your service account JSON file
+# Retrieve secret keys from Streamlit secrets
+service_account_key = st.secrets["google"]["service_account_key"]
+openai_api_key = st.secrets["openai"]["openai_api_key"]
+openai.api_key = openai_api_key
+admin_password = st.secrets["general"]["ADMIN_PASSWORD"]
+folder_id = st.secrets["general"]["folder_id"]
 
-# Load service account credentials
-credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+# Google Drive Authentication
+credentials = service_account.Credentials.from_service_account_info(
+    json.loads(service_account_key),
+    scopes=["https://www.googleapis.com/auth/drive.file"]
+)
+
 drive_service = build('drive', 'v3', credentials=credentials)
 
-# Function to upload file to Google Drive
-def upload_file_to_google_drive(file_name, folder_id):
-    file_metadata = {'name': file_name, 'parents': [folder_id]}
-    media = MediaFileUpload(file_name, resumable=True)
-    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    return file.get('id')
+# Function to load audit tracker data
+def load_data(file_path):
+    return pd.read_excel(file_path)
 
 # Function to download file from Google Drive
 def download_file_from_google_drive(file_id, destination):
     request = drive_service.files().get_media(fileId=file_id)
-    fh = io.FileIO(destination, 'wb')
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
+    with open(destination, 'wb') as f:
+        request.execute()
+    st.success(f"File downloaded to {destination}")
 
-# Function to load data
-def load_data(file_path):
-    return pd.read_excel(file_path)
+# Function to upload file to Google Drive
+def upload_file_to_google_drive(file_path, folder_id):
+    try:
+        file_metadata = {
+            'name': 'auditor_updates.csv',
+            'parents': [folder_id]
+        }
+        media = MediaFileUpload(file_path, mimetype='text/csv')
+        file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        st.success(f"File uploaded successfully with ID: {file['id']}")
+    except HttpError as error:
+        st.error(f"Google API Error: {error}")
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {e}")
 
-# Function to preprocess data
+# Preprocess the data
 def preprocess_data(df):
+    df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+    df['audit_date'] = pd.to_datetime(df['audit_date'], errors='coerce')
     return df
 
-# Function to save auditor data
-def save_auditor_data(update, df, folder_id):
+# Query OpenAI GPT for answers
+def ask_gpt(query, context):
     try:
-        updated_df = pd.concat([df, update], ignore_index=True)
-        updated_df.to_excel('updated_audit_tracker.xlsx', index=False)
-        upload_file_to_google_drive('updated_audit_tracker.xlsx', folder_id)
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert assistant for audit data."},
+                {"role": "user", "content": f"Data Context: {context}\n\nQuestion: {query}"}
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+        return response['choices'][0]['message']['content'].strip()
+    except Exception as e:
+        return f"An error occurred: {e}"
+
+# Save auditor-submitted data
+def save_auditor_data(data, admin_df, filename="auditor_updates.csv"):
+    try:
+        if 'auditor_name' not in admin_df.columns:
+            admin_df['auditor_name'] = None
+        if 'status' not in admin_df.columns:
+            admin_df['status'] = None
+        if 'remarks' not in admin_df.columns:
+            admin_df['remarks'] = None
+        if 'mobile_number' not in admin_df.columns:
+            admin_df['mobile_number'] = None
+
+        for index, row in data.iterrows():
+            audit_name = row['audit_name']
+            auditor_name = row['auditor_name']
+            status = row['status']
+            remarks = row['remarks']
+            mobile_number = row['mobile_number']
+
+            admin_df.loc[admin_df['audit_name'] == audit_name, 'auditor_name'] = auditor_name
+            admin_df.loc[admin_df['audit_name'] == audit_name, 'status'] = status
+            admin_df.loc[admin_df['audit_name'] == audit_name, 'remarks'] = remarks
+            admin_df.loc[admin_df['audit_name'] == audit_name, 'mobile_number'] = mobile_number
+
+        admin_df.to_csv(filename, index=False)
+        st.session_state["auditor_data_saved"] = True
         return True
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error saving data: {e}")
         return False
 
-# Streamlit app setup
-st.title("Audit Tracker App")
+# Merge Admin data and Auditor updates
+def merge_data(admin_df, auditor_updates_path):
+    try:
+        auditor_df = pd.read_csv(auditor_updates_path)
+        merged_df = pd.merge(admin_df, auditor_df, on="audit_name", how="left")
+        return merged_df
+    except Exception as e:
+        st.error(f"Error merging data: {e}")
+        return admin_df
 
-# Sidebar for role selection
-role = st.sidebar.selectbox("Select your role:", ["Admin", "Auditor"])
-folder_id = "your_google_drive_folder_id"  # Replace with your Google Drive folder ID
+# Streamlit UI setup
+st.title('Audit Tracker GenAI App')
 
+# Session state initialization
+if 'role' not in st.session_state:
+    st.session_state['role'] = None
+if 'file_uploaded' not in st.session_state:
+    st.session_state['file_uploaded'] = False
+if 'data' not in st.session_state:
+    st.session_state['data'] = None
+
+# Role Selection
+role = st.radio("Select your role:", ["Admin", "Auditor"])
+
+# Admin Section
 if role == "Admin":
-    st.header("📂 Admin Section: Upload Audit Data")
+    st.session_state['role'] = "Admin"
+    st.header("🔐 Admin Section: Upload, Query, and View Audit Updates")
 
-    uploaded_file = st.file_uploader("Upload Audit Tracker File", type=['xlsx'])
-    if uploaded_file:
-        with open("audit_tracker.xlsx", "wb") as f:
-            f.write(uploaded_file.getbuffer())
+    # Admin Password Validation
+    password = st.text_input("Enter Admin Password:", type="password")
+    if password == admin_password:
+        st.success("Access granted!")
 
-        # Upload the file to Google Drive
-        upload_file_to_google_drive("audit_tracker.xlsx", folder_id)
-        st.success("File uploaded successfully!")
+        # File upload
+        uploaded_file = st.file_uploader("Upload an Audit Tracker Excel file", type=["xlsx"])
 
+        if uploaded_file:
+            # Save the uploaded file temporarily
+            temp_file_path = "uploaded_audit_tracker.xlsx"
+            with open(temp_file_path, "wb") as temp_file:
+                temp_file.write(uploaded_file.getbuffer())
+
+            # Upload the file to Google Drive
+            upload_file_to_google_drive(temp_file_path, folder_id)
+
+            # Load the data from the temporary file
+            st.session_state['data'] = load_data(temp_file_path)
+            st.session_state['data'] = preprocess_data(st.session_state['data'])
+            st.session_state['file_uploaded'] = True
+
+            # Merge with Auditor Updates
+            merged_data = merge_data(st.session_state['data'], "auditor_updates.csv")
+            st.write("### Merged Data with Auditor Inputs:")
+            st.write(merged_data)
+
+            # Query GPT
+            st.write("### Ask Questions About the Data:")
+            question = st.text_input("Enter your query:")
+
+            if question:
+                data_context = merged_data.to_json()
+                response = ask_gpt(question, data_context)
+                st.write("### Query Response:")
+                st.write(response)
+    else:
+        if password:
+            st.error("Invalid password! Please try again.")
+
+# Auditor Section
 elif role == "Auditor":
+    st.session_state['role'] = "Auditor"
     st.header("📝 Auditor Section: Update Audit Data")
 
-    try:
-        st.write("Fetching the latest audit data...")
-        query = f"'{folder_id}' in parents and name = 'audit_tracker.xlsx' and mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
-        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
-        files = results.get("files", [])
+    if st.session_state['file_uploaded'] and st.session_state['data'] is not None:
+        df = st.session_state['data']
 
-        if not files:
-            st.warning("Admin has not uploaded any audit data yet.")
+        # Filter out audits that have already been assigned to an auditor
+        available_audits = df[df['auditor_name'].isnull()]
+
+        if available_audits.empty:
+            st.warning("No audits are available for assignment at the moment.")
         else:
-            # Get the file ID of the latest audit_tracker.xlsx
-            file_id = files[0]["id"]
+            # REGION FILTER
+            st.write("### Filter by Region:")
+            region_list = available_audits['region'].dropna().unique()
+            selected_region = st.selectbox("Select Region:", options=region_list)
 
-            # Download the latest audit file
-            download_file_from_google_drive(file_id, "latest_audit_tracker.xlsx")
+            region_based_audits = available_audits[available_audits['region'] == selected_region]
 
-            # Load the data
-            df = load_data("latest_audit_tracker.xlsx")
-            df = preprocess_data(df)
-
-            # Filter out audits that have already been assigned to an auditor
-            available_audits = df[df['auditor_name'].isnull()]
-
-            if available_audits.empty:
-                st.warning("No audits are available for assignment at the moment.")
+            if region_based_audits.empty:
+                st.warning("No audits are available in this region.")
             else:
-                # REGION FILTER
-                st.write("### Filter by Region:")
-                region_list = available_audits['region'].dropna().unique()
-                selected_region = st.selectbox("Select Region:", options=region_list)
+                audit_name = st.selectbox("Select Audit Name:", region_based_audits['audit_name'].unique())
 
-                region_based_audits = available_audits[available_audits['region'] == selected_region]
+                selected_audit = region_based_audits[region_based_audits['audit_name'] == audit_name].iloc[0]
+                st.write("### Audit Details:")
+                st.write(selected_audit)
 
-                if region_based_audits.empty:
-                    st.warning("No audits are available in this region.")
-                else:
-                    audit_name = st.selectbox("Select Audit Name:", region_based_audits['audit_name'].unique())
+                with st.form("auditor_form"):
+                    st.write("### Auditor Inputs:")
+                    accept_terms = st.checkbox("Accept Terms and Conditions (Mandatory)", value=False)
+                    auditor_name = st.text_input("Auditor Name:", placeholder="Enter your name")
+                    mobile_number = st.text_input("Mobile Number:", placeholder="Enter your mobile number")
+                    remarks = st.text_area("Remarks (Optional):")
+                    status = st.selectbox("Audit Status:", ["Pending", "In Progress", "Completed"])
 
-                    selected_audit = region_based_audits[region_based_audits['audit_name'] == audit_name].iloc[0]
-                    st.write("### Audit Details:")
-                    st.write(selected_audit)
+                    submitted = st.form_submit_button("Submit")
 
-                    with st.form("auditor_form"):
-                        st.write("### Auditor Inputs:")
-                        accept_terms = st.checkbox("Accept Terms and Conditions (Mandatory)", value=False)
-                        auditor_name = st.text_input("Auditor Name:", placeholder="Enter your name")
-                        mobile_number = st.text_input("Mobile Number:", placeholder="Enter your mobile number")
-                        remarks = st.text_area("Remarks (Optional):")
-                        status = st.selectbox("Audit Status:", ["Pending", "In Progress", "Completed"])
+                    if submitted:
+                        if not accept_terms:
+                            st.warning("You must accept the Terms and Conditions to proceed.")
+                        elif not auditor_name or not mobile_number:
+                            st.warning("Auditor Name and Mobile Number are mandatory fields.")
+                        else:
+                            update = pd.DataFrame([{
+                                "audit_name": audit_name,
+                                "auditor_name": auditor_name,
+                                "mobile_number": mobile_number,
+                                "remarks": remarks,
+                                "status": status
+                            }])
 
-                        submitted = st.form_submit_button("Submit")
-
-                        if submitted:
-                            if not accept_terms:
-                                st.warning("You must accept the Terms and Conditions to proceed.")
-                            elif not auditor_name or not mobile_number:
-                                st.warning("Auditor Name and Mobile Number are mandatory fields.")
-                            else:
-                                update = pd.DataFrame([{
-                                    "audit_name": audit_name,
-                                    "auditor_name": auditor_name,
-                                    "mobile_number": mobile_number,
-                                    "remarks": remarks,
-                                    "status": status
-                                }])
-
-                                if save_auditor_data(update, df, folder_id):
+                            try:
+                                if save_auditor_data(update, st.session_state['data']):
                                     st.success("Audit data submitted successfully!")
-                                    st.rerun()
-                                else:
-                                    st.error("Failed to save auditor data. Please try again.")
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+                                    upload_file_to_google_drive("auditor_updates.csv", folder_id)
+                                    st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"An error occurred during rerun: {e}")
+
+                            else:
+                                st.error("Failed to save auditor data. Please try again.")
+    else:
+        st.warning("Admin has not uploaded any audit data yet.")
