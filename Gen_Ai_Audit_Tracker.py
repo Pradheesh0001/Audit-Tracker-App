@@ -6,7 +6,6 @@ from google.oauth2 import service_account
 from googleapiclient.http import MediaFileUpload
 import openai
 import json
-from googleapiclient.errors import HttpError
 
 # Retrieve secret keys from Streamlit secrets
 service_account_key = st.secrets["google"]["service_account_key"]
@@ -29,199 +28,70 @@ def load_data(file_path):
 
 # Function to download file from Google Drive
 def download_file_from_google_drive(file_id, destination):
-    try:
-        request = drive_service.files().get_media(fileId=file_id)
-        with open(destination, 'wb') as f:
-            request.execute()
-        st.success(f"File downloaded to {destination}")
-    except HttpError as error:
-        st.error(f"Error loading data from Google Drive: {error}")
-    except Exception as e:
-        st.error(f"Failed to load data from Google Drive: {e}")
+    request = drive_service.files().get_media(fileId=file_id)
+    with open(destination, 'wb') as f:
+        f.write(request.execute())
+    return destination
 
 # Function to upload file to Google Drive
 def upload_file_to_google_drive(file_path, folder_id):
-    try:
-        file_metadata = {
-            'name': 'auditor_updates.csv',
-            'parents': [folder_id]
-        }
-        media = MediaFileUpload(file_path, mimetype='text/csv')
-        file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        st.success(f"File uploaded successfully with ID: {file['id']}")
-        return file['id']
-    except HttpError as error:
-        st.error(f"Google API Error: {error}")
-    except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
+    file_metadata = {
+        'name': 'audit_data.xlsx',
+        'parents': [folder_id]
+    }
+    media = MediaFileUpload(file_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    return file['id']
 
-# Validate if the file format is correct
-def is_valid_xlsx(file_path):
-    if not file_path.endswith('.xlsx'):
-        st.error("Invalid file format. Please upload an .xlsx file.")
-        return False
-    return True
-
-# Preprocess the data
-def preprocess_data(df):
-    df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
-    df['audit_date'] = pd.to_datetime(df['audit_date'], errors='coerce')
-    return df
-
-# Merge Admin data and Auditor updates
-def merge_data(admin_df, auditor_updates_path):
-    try:
-        auditor_df = pd.read_csv(auditor_updates_path)
-        merged_df = pd.merge(admin_df, auditor_df, on="audit_name", how="left")
-        return merged_df
-    except Exception as e:
-        st.error(f"Error merging data: {e}")
-        return admin_df
-
-# Query OpenAI GPT for answers
-def ask_gpt(query, context):
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are an expert assistant for audit data."},
-                {"role": "user", "content": f"Data Context: {context}\n\nQuestion: {query}"}
-            ],
-            max_tokens=500,
-            temperature=0.7
-        )
-        return response['choices'][0]['message']['content'].strip()
-    except Exception as e:
-        return f"An error occurred: {e}"
-
-# Streamlit UI setup
-st.title('Audit Tracker GenAI App')
-
-# Session state initialization
-if 'role' not in st.session_state:
-    st.session_state['role'] = None
-if 'file_uploaded' not in st.session_state:
-    st.session_state['file_uploaded'] = False
-if 'data' not in st.session_state:
-    st.session_state['data'] = None
+# Streamlit Session State Initialization
+if "file_uploaded" not in st.session_state:
+    st.session_state["file_uploaded"] = False
+if "file_id" not in st.session_state:
+    st.session_state["file_id"] = None
 
 # Role Selection
 role = st.radio("Select your role:", ["Admin", "Auditor"])
 
 # Admin Section
 if role == "Admin":
-    st.session_state['role'] = "Admin"
-    st.header("🔐 Admin Section: Upload, Query, and View Audit Updates")
-
-    # Admin Password Validation
+    st.header("🔐 Admin Section: Upload Audit Data")
     password = st.text_input("Enter Admin Password:", type="password")
-    if password == admin_password:
-        st.success("Access granted!")
 
-        # File upload
-        uploaded_file = st.file_uploader("Upload an Audit Tracker Excel file", type=["xlsx"])
+    if password == admin_password:
+        uploaded_file = st.file_uploader("Upload an Excel file", type=["xlsx"])
 
         if uploaded_file:
-            # Save the uploaded file temporarily
-            temp_file_path = "uploaded_audit_tracker.xlsx"
+            temp_file_path = "temp_audit_data.xlsx"
             with open(temp_file_path, "wb") as temp_file:
                 temp_file.write(uploaded_file.getbuffer())
 
-            # Check file format
-            if is_valid_xlsx(temp_file_path):
-                # Upload the file to Google Drive
-                file_id = upload_file_to_google_drive(temp_file_path, folder_id)
-
-                # Load the data from the temporary file
-                st.session_state['data'] = load_data(temp_file_path)
-                st.session_state['data'] = preprocess_data(st.session_state['data'])
-                st.session_state['file_uploaded'] = True
-
-                # Merge with Auditor Updates
-                merged_data = merge_data(st.session_state['data'], "auditor_updates.csv")
-                st.write("### Merged Data with Auditor Inputs:")
-                st.write(merged_data)
-
-                # Query GPT
-                st.write("### Ask Questions About the Data:")
-                question = st.text_input("Enter your query:")
-
-                if question:
-                    data_context = merged_data.to_json()
-                    response = ask_gpt(question, data_context)
-                    st.write("### Query Response:")
-                    st.write(response)
+            # Upload the file to Google Drive
+            file_id = upload_file_to_google_drive(temp_file_path, folder_id)
+            st.session_state["file_uploaded"] = True
+            st.session_state["file_id"] = file_id
+            st.success("File uploaded successfully!")
     else:
         if password:
-            st.error("Invalid password! Please try again.")
+            st.error("Incorrect password. Please try again.")
 
 # Auditor Section
 elif role == "Auditor":
-    st.session_state['role'] = "Auditor"
-    st.header("📝 Auditor Section: Update Audit Data")
+    st.header("📝 Auditor Section: View Audit Data")
 
-    if st.session_state['file_uploaded'] and st.session_state['data'] is not None:
-        df = st.session_state['data']
+    if st.session_state["file_uploaded"]:
+        # Download and display the data
+        try:
+            temp_file_path = "downloaded_audit_data.xlsx"
+            download_file_from_google_drive(st.session_state["file_id"], temp_file_path)
+            df = load_data(temp_file_path)
+            st.write("### Audit Data:")
+            st.dataframe(df)
 
-        # Filter out audits that have already been assigned to an auditor
-        available_audits = df[df['auditor_name'].isnull()]
-
-        if available_audits.empty:
-            st.warning("No audits are available for assignment at the moment.")
-        else:
-            # REGION FILTER
-            st.write("### Filter by Region:")
-            region_list = available_audits['region'].dropna().unique()
-            selected_region = st.selectbox("Select Region:", options=region_list)
-
-            region_based_audits = available_audits[available_audits['region'] == selected_region]
-
-            if region_based_audits.empty:
-                st.warning("No audits are available in this region.")
-            else:
-                audit_name = st.selectbox("Select Audit Name:", region_based_audits['audit_name'].unique())
-
-                selected_audit = region_based_audits[region_based_audits['audit_name'] == audit_name].iloc[0]
-                st.write("### Audit Details:")
-                st.write(selected_audit)
-
-                with st.form("auditor_form"):
-                    st.write("### Auditor Inputs:")
-                    accept_terms = st.checkbox("Accept Terms and Conditions (Mandatory)", value=False)
-                    auditor_name = st.text_input("Auditor Name:", placeholder="Enter your name")
-                    mobile_number = st.text_input("Mobile Number:", placeholder="Enter your mobile number")
-                    remarks = st.text_area("Remarks (Optional):")
-                    status = st.selectbox("Audit Status:", ["Pending", "In Progress", "Completed"])
-
-                    submitted = st.form_submit_button("Submit")
-
-                    if submitted:
-                        if not accept_terms:
-                            st.warning("You must accept the Terms and Conditions to proceed.")
-                        elif not auditor_name or not mobile_number:
-                            st.warning("Auditor Name and Mobile Number are mandatory fields.")
-                        else:
-                            update = pd.DataFrame([{
-                                "audit_name": audit_name,
-                                "auditor_name": auditor_name,
-                                "status": status,
-                                "remarks": remarks,
-                                "mobile_number": mobile_number
-                            }])
-
-                            # Save the data
-                            save_auditor_data(update, st.session_state['data'])
-
-                            st.success(f"Audit data for {audit_name} has been updated successfully!")
-
+        except Exception as e:
+            st.error(f"Error loading data: {e}")
     else:
-        st.warning("No file has been uploaded by the Admin yet.")
-    
-    # Auto-update simulation: Periodic data reload
-    st.text("Fetching latest data...")
+        st.warning("Admin has not uploaded any audit data yet.")
 
-    # Periodic refresh mechanism (simulate live stream)
-    while True:
-        if st.session_state['file_uploaded'] and st.session_state['data'] is not None:
-            st.rerun()
-        time.sleep(5)  # Check for updates every 5 seconds
+# Auto Refresh Mechanism
+if st.session_state["file_uploaded"] and role == "Auditor":
+    st.rerun()
