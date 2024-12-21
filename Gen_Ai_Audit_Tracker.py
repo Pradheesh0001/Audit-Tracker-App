@@ -79,11 +79,22 @@ elif role == "Auditor":
     st.header("📝 Auditor Section: View Audit Data")
 
     if st.session_state["file_uploaded"]:
-        # Download and display the data
         try:
             temp_file_path = "downloaded_audit_data.xlsx"
+            
+            # Display live updates
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            for i in range(5):  # Simulate checking for updates
+                status_text.text(f"Loading data... Attempt {i + 1}")
+                progress_bar.progress((i + 1) * 20)
+                time.sleep(1)  # Simulating a delay (adjust as needed)
+
+            # Download and display the data
             download_file_from_google_drive(st.session_state["file_id"], temp_file_path)
             df = load_data(temp_file_path)
+            st.success("Data loaded successfully!")
             st.write("### Audit Data:")
             st.dataframe(df)
 
@@ -91,7 +102,3 @@ elif role == "Auditor":
             st.error(f"Error loading data: {e}")
     else:
         st.warning("Admin has not uploaded any audit data yet.")
-
-# Auto Refresh Mechanism
-if st.session_state["file_uploaded"] and role == "Auditor":
-    st.rerun()
