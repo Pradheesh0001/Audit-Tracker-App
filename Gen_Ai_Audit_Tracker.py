@@ -7,7 +7,7 @@ import io
 
 # Google Drive API setup
 SCOPES = ['https://www.googleapis.com/auth/drive']
-SERVICE_ACCOUNT_FILE = 'service_account.json'  # Replace with your service account JSON file
+SERVICE_ACCOUNT_FILE = 'service_account_key.json'  # Replace with your service account JSON file
 
 # Load service account credentials
 credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
