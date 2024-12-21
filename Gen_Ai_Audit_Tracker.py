@@ -9,9 +9,8 @@ import io
 SCOPES = ['https://www.googleapis.com/auth/drive']
 SERVICE_ACCOUNT_FILE = 'service_account.json'  # Replace with your service account JSON file
 
-credentials = service_account.Credentials.from_service_account_info(
-    SERVICE_ACCOUNT_FILE, scopes=SCOPES
-)
+# Load service account credentials
+credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 drive_service = build('drive', 'v3', credentials=credentials)
 
 # Function to upload file to Google Drive
@@ -39,10 +38,10 @@ def preprocess_data(df):
     return df
 
 # Function to save auditor data
-def save_auditor_data(update, df):
+def save_auditor_data(update, df, folder_id):
     try:
-        df.update(update)
-        df.to_excel('updated_audit_tracker.xlsx', index=False)
+        updated_df = pd.concat([df, update], ignore_index=True)
+        updated_df.to_excel('updated_audit_tracker.xlsx', index=False)
         upload_file_to_google_drive('updated_audit_tracker.xlsx', folder_id)
         return True
     except Exception as e:
@@ -57,7 +56,6 @@ role = st.sidebar.selectbox("Select your role:", ["Admin", "Auditor"])
 folder_id = "your_google_drive_folder_id"  # Replace with your Google Drive folder ID
 
 if role == "Admin":
-    st.session_state['role'] = "Admin"
     st.header("📂 Admin Section: Upload Audit Data")
 
     uploaded_file = st.file_uploader("Upload Audit Tracker File", type=['xlsx'])
@@ -70,10 +68,8 @@ if role == "Admin":
         st.success("File uploaded successfully!")
 
 elif role == "Auditor":
-    st.session_state['role'] = "Auditor"
     st.header("📝 Auditor Section: Update Audit Data")
 
-    # Load the latest file from Google Drive
     try:
         st.write("Fetching the latest audit data...")
         query = f"'{folder_id}' in parents and name = 'audit_tracker.xlsx' and mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
@@ -139,13 +135,10 @@ elif role == "Auditor":
                                     "status": status
                                 }])
 
-                                if save_auditor_data(update, df):
+                                if save_auditor_data(update, df, folder_id):
                                     st.success("Audit data submitted successfully!")
-                                    upload_file_to_google_drive("auditor_updates.csv", folder_id)
                                     st.rerun()
                                 else:
                                     st.error("Failed to save auditor data. Please try again.")
-    except HttpError as error:
-        st.error(f"Google Drive API Error: {error}")
     except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
+        st.error(f"An error occurred: {e}")
