@@ -244,11 +244,13 @@ elif role == "Auditor":
 
                             st.success(f"Audit data for {audit_name} has been updated successfully!")
 
-        # Add Refresh Button
+        # Add Refresh Button to Reload Data
         if st.button("Refresh Data"):
-            st.session_state['data'] = None
-            st.session_state['file_uploaded'] = False
-            st.rerun()
+            # Reload the file from Google Drive
+            if st.session_state['file_uploaded']:
+                download_file_from_google_drive(st.session_state['file_id'], 'latest_audit_data.xlsx')
+                st.session_state['data'] = load_data('latest_audit_data.xlsx')
+                st.rerun()
 
     else:
         st.warning("No file has been uploaded by the Admin yet.")
