@@ -28,7 +28,7 @@ def load_data_from_drive(file_id):
         request = drive_service.files().get_media(fileId=file_id)
         with open("temp_audit_data.xlsx", 'wb') as f:
             request.execute()
-        return pd.read_excel("temp_audit_data.xlsx")
+        return pd.read_excel("temp_audit_data.xlsx","engine="openpyxl")
     except Exception as e:
         st.error(f"Error loading data from Google Drive: {e}")
         return None
