@@ -9,7 +9,7 @@ import io
 SCOPES = ['https://www.googleapis.com/auth/drive']
 SERVICE_ACCOUNT_FILE = 'service_account.json'  # Replace with your service account JSON file
 
-credentials = service_account.Credentials.from_service_account_file(
+credentials = service_account.Credentials.from_service_account_info(
     SERVICE_ACCOUNT_FILE, scopes=SCOPES
 )
 drive_service = build('drive', 'v3', credentials=credentials)
